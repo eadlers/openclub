@@ -1,6 +1,8 @@
 ## High Level description of the project for context and help creating the PRD
 
-OpenClub is an AI native club management Software for racket sports where members can book and manage reservations/lessons via text message through a conversational ai agent that communicates with our backend
+OpenClub is an AI native club management Software for racket sports, where members can book and manage reservations/lessons via text message through a conversational ai agent that communicates with our backend
+
+V1 will be for Padel only. This will be the only sport offered
 
 
 ## Users
