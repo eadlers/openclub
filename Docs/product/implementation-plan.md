@@ -80,7 +80,8 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - Tables: `clubs`, `courts`, `members`, `pros`, `court_bookings`, `court_booking_members` (M:N), `lessons`, `lesson_members` (M:N), `programs`, `program_registrations`, `conversation_turns`, `agent_turns` (per-LLM-call telemetry — used in US-10).
 - `clubs.timezone` (IANA string). All timestamps stored as `timestamptz`.
 - `members.phone` and `pros.phone` are E.164 strings; both unique; a phone may exist in both tables (a person who is both a member and a pro).
-- `court_bookings`: enforce no-overlap-per-court using a `tstzrange` column plus a GIST exclusion constraint (`EXCLUDE USING gist (court_id WITH =, range WITH &&)`). Generated column or trigger maintains `range` from `start_at`/`end_at`.
+- **Unified court occupancy:** everything that occupies a court — court bookings *and* court-bound programs — writes a row into one `court_occupancies` table (`court_id`, `tstzrange`, source type + id) carrying a GIST exclusion constraint (`EXCLUDE USING gist (court_id WITH =, range WITH &&)`). This makes the no-double-booking guarantee DB-level for every occupancy combination (booking×booking, booking×program), not dependent on the availability tool's goodwill. See [pre-development-review.md](../technical/pre-development-review.md) §3.
+- Inbound WhatsApp messages get a unique index on `wa_message_id` — Meta redelivers webhooks, and dedupe must be DB-enforced (review §4).
 - `program_registrations`: unique `(program_id, member_id)` excluding cancelled rows (partial unique index).
 - Enums: `program_type` ∈ {`open_play`, `clinic`, `event`}; `booking_status` ∈ {`pending`, `confirmed`, `cancelled`, `declined`}.
 - A short `Docs/technical/data-model.md` summarizing the schema and the key invariants.
@@ -88,6 +89,8 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 **Acceptance criteria.**
 - `pnpm db:migrate` applies cleanly to a fresh Neon database.
 - Inserting an overlapping `court_bookings` row for the same court is rejected at the DB level.
+- Inserting a court booking that overlaps a court-bound program (open play) is rejected at the DB level.
+- Inserting a second row with the same `wa_message_id` is rejected at the DB level.
 - Re-registering the same member for the same program (non-cancelled) is rejected at the DB level.
 - All FK relationships and on-delete behaviors documented in `data-model.md`.
 
@@ -123,7 +126,7 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - Neon Postgres provisioned; `DATABASE_URL` configured on the host; migrations run on every deploy.
 - Meta developer account + WhatsApp Cloud API app created. Test phone number provisioned. Up to 5 tester phone numbers added (founder + friends).
 - Secrets stored only on the host (`ANTHROPIC_API_KEY`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WEBHOOK_VERIFY_TOKEN`, `DATABASE_URL`, `ADMIN_BEARER_TOKEN`). Never committed.
-- **Spike: validate the Groups API on the dev test number** (can it create a group and receive group messages?). This de-risks US-17 now instead of at the end. Record the finding in `Docs/technical/technical-requirements.md`.
+- **Spike: validate the Groups API on the dev test number** — can it create a group, receive group messages, and (critically) **do group webhooks expose participant phone numbers?** Participant resolution (US-17) dies without that. This de-risks US-17 now instead of at the end. Record the finding in `Docs/technical/technical-requirements.md`.
 - **Submit utility templates for approval** (`lesson_request`, `lesson_status_update`, `cancellation_notice`) — needed by US-13/US-15 for notifications outside the 24h service window; approval takes time, so start it here.
 - Deploy and rollback documented in `Docs/technical/operations.md`.
 
@@ -147,6 +150,8 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - Parse inbound payloads into an internal `IncomingMessage`: `{ sender_phone (E.164), wa_message_id, channel: 'dm' | 'group', group_id?, text, timestamp }`.
 - Non-text messages (image, audio, sticker, etc.): for V1, send a one-line "I can only read text in V1" reply and skip the agent loop.
 - Webhook handler returns 200 within 5s regardless of downstream work; processing dispatched to an in-process worker.
+- **Idempotency:** before any processing, skip messages whose `wa_message_id` was already seen (unique index from US-02) — Meta redelivers webhooks, and a redelivered "book it" must not book twice.
+- **Transport-agnostic pipeline:** the message pipeline consumes the normalized `IncomingMessage` behind an interface — the Meta webhook is just one producer. Add an admin-only `POST /admin/simulate-message` (bearer-protected) that injects an `IncomingMessage` through the *identical* pipeline. This is the chat simulator (review §2): agent iteration without phone/tunnel, and the substrate for the US-18 eval harness.
 - Every inbound logged before processing (so we can replay failures).
 
 **Acceptance criteria.**
@@ -154,6 +159,8 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - Sending a text from a tester phone produces a parsed `IncomingMessage` in logs and a row in `conversation_turns` (after US-08; for this story, log only).
 - A request with a tampered signature is rejected with 401.
 - An image message triggers the "text only in V1" reply and no LLM call.
+- Redelivering the same webhook payload twice processes the message exactly once.
+- `POST /admin/simulate-message` produces the same downstream behavior as a real webhook delivery.
 
 ---
 
@@ -230,6 +237,7 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - Tool registry pattern: each tool has `name`, `description`, Zod input schema (converted to JSON Schema for Anthropic), and an async `handler(input, ctx)`. `ctx` carries `Identity`, `conversation_id`, db handle, and the outbound WhatsApp client.
 - Agent loop: call API → if `stop_reason === 'tool_use'`, execute returned tool calls in parallel, append `tool_result` blocks, loop. Stop at `end_turn`, on max iterations (6), or on wall-clock timeout (30s).
 - Tool errors are returned to the model as `tool_result` with `is_error: true` so it can recover gracefully.
+- **Confirm-before-write prompt policy:** before calling any tool that writes (booking, registration, cancellation, lesson request), the agent echoes the absolute resolved datetime and target ("That's Tuesday July 8, 7:00pm, Court 2 — confirm?") and waits for a yes. Relative-time resolution ("Tuesday 7pm") is the #1 booking-agent failure mode (review §5).
 - Final assistant text sent via the outbound client; assistant + tool turns persisted to `conversation_turns`.
 - One toy tool wired in for this story: `whoami()` returning the caller's identity.
 
@@ -267,13 +275,16 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 
 **Requirements.**
 - Tool `search_court_availability({ date, earliest_start?, latest_start?, duration_minutes? })`: returns up to N candidate slots across courts that fit the constraints, respecting operating hours and existing `court_bookings`/`programs`.
-- Tool `create_court_booking({ court_id, start_at, duration_minutes, member_phones? })`: creates a `confirmed` court booking, links the requesting member (and any additional `member_phones` — used by group flow in US-17), rejects on conflict.
+- Tool `create_court_booking({ court_id, start_at, duration_minutes, member_phones? })`: creates a `confirmed` court booking, links the requesting member (and any additional `member_phones`), rejects on conflict.
+- **Multi-member booking by name works in 1:1 chat** ("book for me, Alex, and Sam Tuesday 7pm"): the agent resolves named members and passes their phones in `member_phones`. This is the low-risk core of the group value (review §1) — US-17's group chat builds on it as an experiment, not the other way around.
+- Bookings are only created after the user confirms the echoed absolute datetime (confirm-before-write policy from US-09).
 - Default duration: **90 minutes** (per PRD assumption). Agent should ask for confirmation if the user requests a non-standard duration.
 - Time parsing in the club's timezone.
 - Successful reply includes date (formatted in club tz), start time, court name, duration, and participants.
 
 **Acceptance criteria.**
-- "Book a court Tuesday at 7pm" → agent creates a 90-minute booking starting Tuesday 19:00 club-local on one of the available courts and confirms by name.
+- "Book a court Tuesday at 7pm" → agent echoes the absolute resolved date/time and court, and after the user confirms, creates a 90-minute booking starting Tuesday 19:00 club-local.
+- "Book for me and Alex Tuesday 7pm" in a 1:1 chat → one booking linked to both members (Alex resolved by name from the member roster).
 - A conflicting request returns a tool error; the agent suggests alternative slots in the same reply.
 - A request outside operating hours is refused with a clear message.
 - The resulting `court_bookings` row has the requesting member linked via `court_booking_members`.
@@ -415,7 +426,8 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - System prompt explicitly enumerates the tool catalog and when to use which.
 - Few-shot examples in the system prompt for 3+ broad patterns: availability sweep, "any [type] this weekend?", "who are the pros?".
 - When the agent lists options to the user, it ends with a soft follow-up ("Want me to book one?").
-- Minimal eval harness: 10–15 hand-picked prompts in `evals/prompts.json` with the expected first tool call. `pnpm eval` runs each against the live agent loop in a sandbox conversation and reports pass/fail.
+- Minimal eval harness: 10–15 hand-picked prompts in `evals/prompts.json` with the expected first tool call. `pnpm eval` runs each against the live agent loop in a sandbox conversation (via the US-05 simulate pipeline) and reports pass/fail.
+- Include time-resolution eval cases (review §5): "tomorrow at 7", "Tuesday 7pm" said on a Tuesday, "7 o'clock" (AM/PM ambiguity) — each expected to resolve to the correct absolute datetime or trigger a clarifying question.
 
 **Acceptance criteria.**
 - ≥ 80% of eval prompts produce the expected first tool call.
@@ -434,6 +446,8 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - Pre-flight checklist: members and pros seeded; Meta dev test number live with 5 testers added; logs streaming; `/admin/turns` reachable; rollback documented.
 - Scripted scenario covering every PRD flow: book a court (1:1), book a lesson (request + pro accept), register for each program type, list reservations, cancel each type, group booking for 4.
 - `Docs/product/dogfood-notes.md` started — tracking bugs, surprises, qualitative impressions.
+- **Kill/go signals written down *before* the run starts** (review §7 — friends are nice; pre-committed signals keep the verdict honest). E.g.: testers initiate bookings unprompted after week 1; zero wrong-time bookings across the run; multi-member/group booking used more than once without prompting.
+- Explicit dogfood question with a written answer: **does a business-created WhatsApp group feel natural or dead** compared to booking for friends by name in a 1:1 chat? (review §1)
 
 **Acceptance criteria.**
 - Founder + ≥ 3 friends each complete all five PRD member flows over WhatsApp.
