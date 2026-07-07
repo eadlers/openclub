@@ -2,8 +2,10 @@
 
 Tech stack, architecture decisions, and anything related to the technologies used to
 build this app live in this `technical/` folder. **This document tracks the current stack
-direction for V1. Nothing here is locked — we're still pre-code and free to change any of
-it.** Where other docs disagree on stack, treat this one as the most current.
+direction for V1.** Development has started (see the Progress table in
+[implementation-plan.md](../product/implementation-plan.md)); choices already built are
+settled, the rest remain changeable. Where other docs disagree on stack, treat this one
+as the most current.
 
 Related: [agent-stack.md](./agent-stack.md) (cost analysis + LLM strategy),
 [../product/PRD.md](../product/PRD.md) (product scope),
@@ -23,9 +25,9 @@ Related: [agent-stack.md](./agent-stack.md) (cost analysis + LLM strategy),
 | Messaging | Meta WhatsApp Cloud API direct, dev test number | Free + official; the 5-tester limit covers the founder + friends dogfood. |
 | Background work | In-process worker (no queue) | Webhook returns 200 fast, dispatches processing in-process. |
 | Cache / Redis | None | Nothing in scope needs a cache, session store, or durable queue. |
-| Tests | Vitest | Fast, ESM-native. |
+| Tests | Vitest + supertest | Fast, ESM-native. |
 | Package manager | pnpm | Faster installs, strict by default. |
-| Lint / format | Biome (or ESLint + Prettier) | Single fast toolchain preferred. |
+| Lint / format | Biome | Chosen in US-01 — single fast toolchain. |
 
 ## LLM strategy notes
 

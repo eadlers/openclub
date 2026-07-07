@@ -3,8 +3,8 @@
 > **Status note (2026-07-02):** Model-agnostic gateways (OpenRouter, Vercel AI Gateway,
 > LiteLLM) were explored and set aside — at ~1-to-few users, vendor neutrality isn't worth
 > the extra layer, so V1 calls **Anthropic directly** (this doc's original recommendation).
-> Nothing is locked; we're still pre-code. See
-> [technical-requirements.md](./technical-requirements.md) for the current stack direction.
+> See [technical-requirements.md](./technical-requirements.md) for the current stack
+> direction.
 
 ## Goal
 

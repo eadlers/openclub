@@ -4,7 +4,22 @@ AI-native club management for racket sports, starting with Padel. Members and pr
 
 ## Current state
 
-Pre-code; docs only. Development follows the ordered user stories in `Docs/product/implementation-plan.md` (US-01 → US-19).
+In development, following the ordered user stories in `Docs/product/implementation-plan.md` (US-01 → US-19). The plan's "Progress" section at the top tracks which stories are done. US-01 (scaffold) is complete; US-02 (data model) is next and needs a Postgres instance (Neon or local).
+
+## Commands
+
+- `pnpm dev` — run locally with reload (http://localhost:3000, `GET /health`)
+- `pnpm test` / `pnpm typecheck` / `pnpm lint` — all must pass before a story is done
+- `pnpm build && pnpm start` — compiled production run
+- `pnpm db:generate` / `db:migrate` / `db:seed` — stubs until US-02/US-03
+
+## Code layout
+
+- `src/config.ts` — Zod-validated env; every new env var goes here **and** in `.env.example`
+- `src/logger.ts` — pino factory (pretty in dev, silent in tests)
+- `src/app.ts` — Express app factory (keep it port-free so tests can use supertest)
+- `src/index.ts` — boot: load config → create logger → listen
+- `tests/` — Vitest + supertest
 
 ## Doc map
 
@@ -18,7 +33,7 @@ When docs disagree on stack choices, `technical-requirements.md` wins.
 
 ## Stack (decided, not locked)
 
-TypeScript on Node (`strict: true`), Express + pino, Drizzle + Neon Postgres, Anthropic SDK direct (`claude-sonnet-4-6` with prompt caching, no framework/gateway), Meta WhatsApp Cloud API (dev test number), Vitest, pnpm, Biome. Hosting: Railway or Fly.io.
+TypeScript (strict, NodeNext ESM) on Node ≥ 22, Express 5 + pino, Zod 4, Drizzle + Neon Postgres, Anthropic SDK direct (`claude-sonnet-4-6` with prompt caching, no framework/gateway), Meta WhatsApp Cloud API (dev test number), Vitest + supertest, pnpm, Biome. Hosting: Railway or Fly.io (undecided until US-04).
 
 ## Key constraints & conventions
 

@@ -2,6 +2,14 @@
 
 This plan turns the [V1 PRD](./PRD.md) into an ordered series of user stories that each take V1 a meaningful step forward. Following them top-to-bottom builds the app along the natural dependency graph: foundation → transport → agent core → member flows → pro flows → group chat → polish → dogfood.
 
+## Progress
+
+| Story | Status |
+|---|---|
+| US-01 Scaffold | ✅ Done |
+| US-02 Data model | Next — needs a Postgres instance (Neon or local Docker) |
+| US-03 → US-19 | Not started |
+
 ## Stack decisions baked into the plan
 
 | Area | Choice | Rationale |
@@ -13,7 +21,8 @@ This plan turns the [V1 PRD](./PRD.md) into an ordered series of user stories th
 | Hosting | Railway (or Fly.io) for the API | Always-on so testers can text any time; small footprint keeps cost ≈ $0. |
 | LLM | Anthropic Claude Sonnet 4.6 direct, with prompt caching | Per [technical-requirements.md](../technical/technical-requirements.md) + [agent-stack.md](../technical/agent-stack.md): direct (not model-agnostic) for simplicity + strongest tool use; caching cuts ~43% cost. |
 | Messaging | Meta WhatsApp Cloud API direct, dev test number | Free + official; the 5-tester limit covers the dogfood exactly. |
-| Tests | Vitest | Fast, ESM-native, fine for unit + integration. |
+| Tests | Vitest (+ supertest) | Fast, ESM-native, fine for unit + integration. |
+| Lint / format | Biome | Chosen in US-01 — single fast toolchain. |
 | Package manager | pnpm | Faster installs, strict by default. |
 
 ## How to read each story
@@ -48,7 +57,7 @@ Stories are intentionally sized so you can ship one in a sitting and have a gree
 - TypeScript with `strict: true`.
 - Express HTTP server on Node.js with a `GET /health` route returning 200.
 - Environment loading via Zod-validated config (fail fast on boot if a required var is missing).
-- Biome (or ESLint + Prettier) for lint/format.
+- Biome for lint/format.
 - Vitest for tests.
 - pnpm scripts: `dev`, `build`, `start`, `test`, `lint`, `typecheck`, `db:generate`, `db:migrate`, `db:seed`.
 - `.env.example` listing every variable used by the app.
