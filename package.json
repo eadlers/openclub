@@ -1,0 +1,42 @@
+{
+  "name": "openclub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-native club management for Padel — WhatsApp agent backend",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.10.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "echo 'db:generate arrives with US-02 (Drizzle schema)' && exit 1",
+    "db:migrate": "echo 'db:migrate arrives with US-02 (Drizzle schema)' && exit 1",
+    "db:seed": "echo 'db:seed arrives with US-03 (mock club seed)' && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.2",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.0",
+    "@types/supertest": "^7.2.0",
+    "pino-pretty": "^13.1.3",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
