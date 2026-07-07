@@ -60,7 +60,9 @@ A single phone number may belong to both a member and a pro.
 - Ask open-ended questions: "what's available Tuesday evening," "any clinics this weekend," "who are the pros."
 
 ### Group chat flow (in a WhatsApp group)
-- Agent is added to a group.
+- The club (business number) creates the group and invites members via link — the
+  WhatsApp Cloud API cannot join member-created groups, and groups cap at 8
+  participants (see `Docs/technical/technical-requirements.md`, platform constraints).
 - Agent resolves each participant's phone number against the member database.
 - A member in the group can request a booking that covers multiple participants ("us four, court Tuesday 7pm").
 - Agent creates the court booking and links each registered participant to it.
@@ -111,6 +113,7 @@ openclub backend
 - **Meta WhatsApp Cloud API direct.** Cheaper, more control, official.
 - For V1, use Meta's dev test phone number — messaging up to 5 testers without going through Business verification. Perfect for the founder + friends dogfood scope.
 - Plan Business verification before any real pilot.
+- **Two platform constraints shape the flows** (details in `Docs/technical/technical-requirements.md`): groups must be business-created (agent can't be added to member groups; max 8 participants; Groups API support on the dev test number is unverified — spike early), and business-initiated notifications (lesson requests to pros, status/cancellation notices) outside the 24h service window require pre-approved utility templates.
 
 ### Agent
 - **Claude API + native tool use** as the working assumption. Final selection (model tier, router pattern, framework or none) is decided in the separate cost-driven document `Docs/technical/agent-stack.md`.

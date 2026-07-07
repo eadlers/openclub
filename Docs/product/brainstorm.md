@@ -7,8 +7,3 @@ Whatsapp would be perfect since most Padel players use this app for
 The agent must know who this person is on the system. Need to figure out authentication from messages to our backend (something with phone number tied would be ideal)
 
 We definitely want the ability to add the agent into the group, identify the participants in our system, and be able to respond to questions or create a reservation for everyone in a group
-
-
-
-
-

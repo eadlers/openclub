@@ -1,0 +1,17 @@
+# Dependencies / build
+node_modules/
+dist/
+build/
+coverage/
+
+# Env & secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Local tester PII (see implementation-plan US-03)
+seed.config.json
+
+# Misc
+*.log
+.DS_Store
