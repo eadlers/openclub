@@ -1,474 +1,704 @@
-# openclub V1 — Implementation Plan
+# openclub — Implementation Plan (PRD v2)
 
-This plan turns the [V1 PRD](./PRD.md) into an ordered series of user stories that each take V1 a meaningful step forward. Following them top-to-bottom builds the app along the natural dependency graph: foundation → transport → agent core → member flows → pro flows → group chat → polish → dogfood.
+This plan turns the [PRD](./PRD.md) (v2 — Lima padel, "club-manager") into an ordered
+series of user stories. Following them top-to-bottom builds the app along the natural
+dependency graph: foundation → deterministic engine → jobs → transport → identity →
+agent core → booking tools → payments → lifecycle messaging → owner surface →
+resilience + evals → shakeout → design-partner pilot.
+
+**Scope: PRD P0 only.** P1/P2 items (waitlist cascade, falta-uno, turno fijo,
+reactivation promos, academy, tournaments, Instagram DM, full analytics) are listed at
+the bottom, not planned here.
+
+> **History note:** this plan replaces the PRD-v1 plan (dogfood prototype: lessons,
+> programs, group-chat booking, invite-only — see git history). US-01 was completed
+> under the old plan and carries over unchanged. Surviving insights from the
+> [pre-development review](../technical/pre-development-review.md): the chat simulator,
+> the unified occupancy table, webhook idempotency, and confirm-before-write.
 
 ## Progress
 
 | Story | Status |
 |---|---|
-| US-01 Scaffold | ✅ Done |
+| US-01 Scaffold | ✅ Done (under the v1 plan; scope-neutral) |
 | US-02 Data model | Next — needs a Postgres instance (Neon or local Docker) |
-| US-03 → US-19 | Not started |
+| US-03 → US-22 | Not started |
 
 ## Stack decisions baked into the plan
 
-| Area | Choice | Rationale |
+| Area | Choice | Rationale (details in [technical-requirements.md](../technical/technical-requirements.md)) |
 |---|---|---|
-| Language / runtime | TypeScript on Node.js | Strong fit for thin webhook + Claude agent loop; first-class Anthropic SDK; tight types across tool schemas. |
-| HTTP framework | Express | Most widely used Node framework; deepest tutorial/example base to learn from; mature. Add `pino` for structured logs. |
-| ORM / migrations | Drizzle + drizzle-kit | Typed Postgres without Prisma's runtime weight; raw-SQL escape hatch when needed. |
-| Database | Neon Postgres (managed, free tier) | Always-on, cheap, native Postgres features (timestamptz, GIST exclusion). |
-| Hosting | Railway (or Fly.io) for the API | Always-on so testers can text any time; small footprint keeps cost ≈ $0. |
-| LLM | Anthropic Claude Sonnet 4.6 direct, with prompt caching | Per [technical-requirements.md](../technical/technical-requirements.md) + [agent-stack.md](../technical/agent-stack.md): direct (not model-agnostic) for simplicity + strongest tool use; caching cuts ~43% cost. |
-| Messaging | Meta WhatsApp Cloud API direct, dev test number | Free + official; the 5-tester limit covers the dogfood exactly. |
-| Tests | Vitest (+ supertest) | Fast, ESM-native, fine for unit + integration. |
-| Lint / format | Biome | Chosen in US-01 — single fast toolchain. |
-| Package manager | pnpm | Faster installs, strict by default. |
+| Language / runtime | TypeScript on Node.js | Thin webhook + agent loop + engine in one typed codebase; first-class Anthropic SDK. |
+| HTTP framework | Express + pino | Widely used, mature; structured logs. |
+| ORM / DB | Drizzle + Neon Postgres | Typed SQL; GIST exclusion constraints; partial unique indexes. |
+| Multi-tenancy | Tenant-keyed rows, single DB (P0, FR-12) | Isolation enforced at the data layer + CI tests. |
+| Background jobs | pg-boss **or** graphile-worker (decided in US-05) | Hold TTLs, reminders, digests — Postgres-backed, no Redis. |
+| Payments | Gateway adapter, Mercado Pago first + manual yapeo | Yape/Plin + cards; zero-fee manual mode (FR-4). |
+| LLM | Anthropic direct, Sonnet (`claude-sonnet-4-6`, env-configurable), prompt caching | See [agent-stack.md](../technical/agent-stack.md); guardrail < S/0.50/booking. |
+| Messaging | Meta WhatsApp Cloud API direct | Dev test number for dev + shakeout; business verification before the pilot. |
+| Locale | es-PE, `America/Lima`, PEN | Templates and evals Spanish-first. |
+| Tests / tooling | Vitest + supertest, pnpm, Biome, GitHub Actions CI | Already in place from US-01. |
 
 ## How to read each story
 
-Each story has:
-- **Description** — what slice of V1 it delivers.
-- **Depends on** — prior stories that must be in place.
-- **Requirements** — what the implementation must include.
-- **Acceptance criteria** — concrete checks that prove it's done.
-
-Stories are intentionally sized so you can ship one in a sitting and have a green test on it before moving on.
+Each story has: **Description** (what slice it delivers), **Depends on**,
+**Requirements**, and **Acceptance criteria**. Stories are sized to ship in a sitting
+or two with green tests before moving on.
 
 ## Sequencing rationale
 
-1. **US-01 → US-03 (Foundation):** scaffold, schema, seed. Nothing user-facing yet, but every later story builds on this.
-2. **US-04 → US-07 (Transport + identity):** make round-trip WhatsApp messages work and enforce invite-only.
-3. **US-08 → US-10 (Agent core):** persistent history, tool-using Claude loop, observability — once these are in, every new feature is "add a tool."
-4. **US-11 → US-14 (Member flows):** the headline V1 capabilities for members.
-5. **US-15 → US-16 (Lesson lifecycle):** the trickiest member↔pro async flow.
-6. **US-17 (Group chat):** the V1 differentiator — last because it builds on every prior story.
-7. **US-18 → US-19 (Polish + dogfood):** behavior tightening and the actual dogfood run.
+1. **US-01 → US-03 (Foundation):** scaffold, tenant-first schema, seed.
+2. **US-04 → US-05 (Engine + jobs):** the deterministic core — "the LLM interprets;
+   the engine decides" means the engine exists and is fully tested *before* any LLM
+   touches it. Jobs next because holds expire on timers.
+3. **US-06 → US-09 (Transport + identity):** hosting, webhook round-trip, the chat
+   simulator (the single biggest velocity decision), first-contact registration.
+4. **US-10 → US-12 (Agent core):** history, tool loop with cost telemetry,
+   observability — after these, every feature is "add a tool."
+5. **US-13 → US-15 (Booking + payments):** the headline flow — book, hold, pay,
+   confirm — plus cierre de caja.
+6. **US-16 → US-18 (Lifecycle + owner surface):** reminders/no-shows, owner ops +
+   digest, onboarding wizard + minimal dashboard.
+7. **US-19 → US-20 (Resilience + quality):** degraded button mode, Spanish eval
+   harness.
+8. **US-21 → US-22 (Shakeout + pilot):** internal end-to-end run, then business
+   verification and the first design partner.
 
 ---
 
-## US-01 — Repository scaffold and developer tooling
+## US-01 — Repository scaffold and developer tooling ✅
 
-**Description.** Stand up the TypeScript backend skeleton with the minimum tooling needed to develop and ship V1.
-
-**Depends on.** —
-
-**Requirements.**
-- TypeScript with `strict: true`.
-- Express HTTP server on Node.js with a `GET /health` route returning 200.
-- Environment loading via Zod-validated config (fail fast on boot if a required var is missing).
-- Biome for lint/format.
-- Vitest for tests.
-- pnpm scripts: `dev`, `build`, `start`, `test`, `lint`, `typecheck`, `db:generate`, `db:migrate`, `db:seed`.
-- `.env.example` listing every variable used by the app.
-- README section: "How to run locally."
-
-**Acceptance criteria.**
-- Fresh clone → `pnpm install && pnpm dev` boots the server and `curl localhost:3000/health` returns 200.
-- `pnpm test`, `pnpm typecheck`, and `pnpm lint` all pass on the empty scaffold.
-- Booting the server with a required env var missing exits with a clear error.
+**Description.** TypeScript backend skeleton: Express + `GET /health`, Zod-validated
+env config, Biome, Vitest, pnpm scripts, `.env.example`, CI. Completed 2026-07;
+scope-neutral across the PRD pivot.
 
 ---
 
-## US-02 — Data model and migrations
+## US-02 — Tenant-first data model and migrations
 
-**Description.** Implement the PRD's data model in Drizzle with the constraints needed to keep V1 honest.
+**Description.** Implement the PRD v2 data model in Drizzle with the invariants that
+keep the engine honest: tenant isolation, DB-level no-double-booking, payment-state
+machine, idempotent inbound messages.
 
 **Depends on.** US-01.
 
 **Requirements.**
-- Tables: `clubs`, `courts`, `members`, `pros`, `court_bookings`, `court_booking_members` (M:N), `lessons`, `lesson_members` (M:N), `programs`, `program_registrations`, `conversation_turns`, `agent_turns` (per-LLM-call telemetry — used in US-10).
-- `clubs.timezone` (IANA string). All timestamps stored as `timestamptz`.
-- `members.phone` and `pros.phone` are E.164 strings; both unique; a phone may exist in both tables (a person who is both a member and a pro).
-- **Unified court occupancy:** everything that occupies a court — court bookings *and* court-bound programs — writes a row into one `court_occupancies` table (`court_id`, `tstzrange`, source type + id) carrying a GIST exclusion constraint (`EXCLUDE USING gist (court_id WITH =, range WITH &&)`). This makes the no-double-booking guarantee DB-level for every occupancy combination (booking×booking, booking×program), not dependent on the availability tool's goodwill. See [pre-development-review.md](../technical/pre-development-review.md) §3.
-- Inbound WhatsApp messages get a unique index on `wa_message_id` — Meta redelivers webhooks, and dedupe must be DB-enforced (review §4).
-- `program_registrations`: unique `(program_id, member_id)` excluding cancelled rows (partial unique index).
-- Enums: `program_type` ∈ {`open_play`, `clinic`, `event`}; `booking_status` ∈ {`pending`, `confirmed`, `cancelled`, `declined`}.
-- A short `Docs/technical/data-model.md` summarizing the schema and the key invariants.
+- Every domain table carries `tenant_id` (the club); all data access goes through a
+  tenant-scoped query layer — no raw cross-tenant queries (FR-12).
+- Tables: `tenants` (club config: name, timezone, currency, policies, payment mode,
+  agent config), `courts` (operating hours, slot durations), `members` (keyed on
+  `(tenant_id, phone)`; name, level, opt-ins, tags), `staff` (owner/admin/coach roles,
+  phone-identified, scoped permissions), `bookings` (court, range, price, status,
+  payment state), `holds` (booking-shaped, TTL expiry timestamp),
+  `court_occupancies` — **everything that occupies a court** (confirmed bookings,
+  active holds, maintenance blocks; classes later) writes a row here with
+  `EXCLUDE USING gist (court_id WITH =, range WITH &&)`, making no-double-booking
+  DB-level for every combination.
+- `pricing_rules` (peak/valley by day+hour, member/non-member, promo overrides).
+- Payment tables: `payments` with the state machine
+  `unpaid → held → paid | failed | expired | refunded` (enum + guarded transitions),
+  `wallet_entries` (append-only credit ledger per member), `no_show_records`.
+- Conversation tables: `conversation_turns` (per `(tenant_id, phone)` thread; JSONB
+  Anthropic-compatible blocks), `agent_turns` (per-LLM-call telemetry incl. token
+  counts and cost), unique index on `wa_message_id` (Meta redelivers webhooks).
+- All timestamps `timestamptz`; ranges `tstzrange`; money as integer céntimos.
+- **Tenant-isolation test in CI:** a test that seeds two tenants and proves the query
+  layer cannot read across them.
+- A short `Docs/technical/data-model.md` documenting tables, FKs, and invariants.
 
 **Acceptance criteria.**
-- `pnpm db:migrate` applies cleanly to a fresh Neon database.
-- Inserting an overlapping `court_bookings` row for the same court is rejected at the DB level.
-- Inserting a court booking that overlaps a court-bound program (open play) is rejected at the DB level.
-- Inserting a second row with the same `wa_message_id` is rejected at the DB level.
-- Re-registering the same member for the same program (non-cancelled) is rejected at the DB level.
-- All FK relationships and on-delete behaviors documented in `data-model.md`.
+- `pnpm db:migrate` applies cleanly to a fresh database.
+- Overlapping occupancy rows for the same court are rejected at the DB level —
+  booking×booking, booking×hold, and booking×maintenance-block all tested.
+- An invalid payment-state transition (e.g. `expired → paid`) is rejected.
+- Duplicate `wa_message_id` inserts are rejected at the DB level.
+- The tenant-isolation CI test passes (and fails if the scoping is removed).
 
 ---
 
-## US-03 — Mock club seed
+## US-03 — Demo club seed (Lima)
 
-**Description.** Populate the dogfood scenario deterministically so any contributor can reset the DB and have a usable club.
+**Description.** Deterministic seed of a realistic Lima demo club so any contributor
+can reset the DB into a usable state, and the shakeout has a believable club.
 
 **Depends on.** US-02.
 
 **Requirements.**
-- `pnpm db:seed` creates: 1 club (with timezone, e.g., `America/New_York`), 3 courts with operating hours (e.g., 07:00–23:00 local), 5–6 members (founder + friends), 2 pros, ≥ 6 upcoming programs spanning all three types across the next 14 days.
-- Phone numbers and tester names come from a local `seed.config.json` (gitignored) — no PII in the repo.
-- Seed is idempotent (upsert by phone for people; deterministic ID for programs).
-- One member also exists as a pro (to exercise the dual-role case).
+- `pnpm db:seed` creates: 1 tenant (timezone `America/Lima`, currency PEN, es-PE
+  copy), 4 courts (07:00–23:00, 90-min default slots), peak/valley pricing rules
+  (e.g. valley S/80, peak S/120), cancellation policy (>12h → wallet credit), 1 owner
+  + 1 admin + 1 coach, 6–8 members with levels.
+- Real tester names/phones come from gitignored `seed.config.json` — no PII in the
+  repo; the seed falls back to obviously-fake fixtures when the file is absent.
+- Idempotent (upsert by `(tenant, phone)`; deterministic ids for courts/rules).
+- A second tiny tenant is seeded too, purely to keep tenant-isolation honest in dev.
 
 **Acceptance criteria.**
-- After `pnpm db:seed`, `select * from members` contains the configured testers with E.164 phone numbers.
-- At least two of each program type exist in the next 14 days.
-- Re-running seed twice does not create duplicates.
+- After `pnpm db:seed`, the demo club exists with courts, prices, staff, and members.
+- Re-running the seed twice creates no duplicates.
+- Both tenants exist and the isolation test passes against seeded data.
 
 ---
 
-## US-04 — Hosting, Meta dev app, and secrets
+## US-04 — Deterministic booking engine
 
-**Description.** Get the backend reachable on a public HTTPS URL, with the WhatsApp Cloud API dev app provisioned and secrets managed securely.
+**Description.** The core of the product: a pure, fully-tested service layer that owns
+availability, pricing, holds, bookings, and policy. No LLM anywhere in this story.
 
-**Depends on.** US-01.
+**Depends on.** US-02, US-03.
 
 **Requirements.**
-- Backend deployed to Fly.io (or Railway) with HTTPS, a stable subdomain, and a health check.
-- Neon Postgres provisioned; `DATABASE_URL` configured on the host; migrations run on every deploy.
-- Meta developer account + WhatsApp Cloud API app created. Test phone number provisioned. Up to 5 tester phone numbers added (founder + friends).
-- Secrets stored only on the host (`ANTHROPIC_API_KEY`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WEBHOOK_VERIFY_TOKEN`, `DATABASE_URL`, `ADMIN_BEARER_TOKEN`). Never committed.
-- **Spike: validate the Groups API on the dev test number** — can it create a group, receive group messages, and (critically) **do group webhooks expose participant phone numbers?** Participant resolution (US-17) dies without that. This de-risks US-17 now instead of at the end. Record the finding in `Docs/technical/technical-requirements.md`.
-- **Submit utility templates for approval** (`lesson_request`, `lesson_status_update`, `cancellation_notice`) — needed by US-13/US-15 for notifications outside the 24h service window; approval takes time, so start it here.
-- Deploy and rollback documented in `Docs/technical/operations.md`.
+- `searchAvailability({ date, earliest?, latest?, duration? })` → candidate slots with
+  computed prices, respecting operating hours, occupancies, and pricing rules.
+- `priceSlot(...)` — peak/valley + member status + promo overrides; single source of
+  price truth.
+- `acquireHold({ court, range, member })` → hold row + occupancy row + payment row in
+  `unpaid`, with TTL (default 15 min, per-tenant configurable). Serializable /
+  constraint-backed so two concurrent holds on the last slot cannot both succeed.
+- `confirmBooking(hold, paymentEvidence)` — transitions payment per the state machine
+  and converts hold → confirmed booking.
+- `releaseHold(hold)` / hold expiry — frees the occupancy, marks payment `expired`.
+- `cancelBooking(booking, at)` — applies the policy engine (>12h → full wallet
+  credit; <12h → per-club policy), frees the slot.
+- `rescheduleBooking(...)` — atomic move (new hold + cancel old on confirm).
+- Staff parity: manual bookings, overrides, and maintenance blocks go through the same
+  engine functions (FR-1).
+- Wallet ledger operations (credit, debit, no-show fee capture) — append-only.
+- **Concurrent-hold simulation test** (NFR): N parallel attempts on one slot → exactly
+  one succeeds, zero double-bookings, run in CI.
 
 **Acceptance criteria.**
-- `curl https://<host>/health` returns 200 publicly.
-- Migrations applied to the prod DB.
-- Meta dev dashboard shows the app with the test number and the tester phones added.
-- `.env.example` updated to list every var the app expects.
+- Unit tests cover availability edges (operating hours, overlapping holds, maintenance
+  blocks), pricing (peak/valley/member/promo), and every payment-state transition.
+- The concurrency simulation passes repeatedly in CI.
+- Cancelling >12h before start credits the wallet; <12h follows the seeded policy.
+- No function in the engine imports anything LLM-related (enforced by a lint boundary
+  or a simple dependency test).
 
 ---
 
-## US-05 — WhatsApp inbound webhook
+## US-05 — Background jobs
 
-**Description.** Accept and parse messages from Meta's WhatsApp Cloud API, with authenticity verification and a normalized internal shape.
+**Description.** A Postgres-backed job runner for everything timer-driven: hold
+expiry now; reminders, digests, and dunning later.
 
-**Depends on.** US-04.
+**Depends on.** US-02, US-04.
 
 **Requirements.**
-- `GET /whatsapp/webhook`: Meta's `hub.challenge` verification against `WEBHOOK_VERIFY_TOKEN`.
-- `POST /whatsapp/webhook`: validate `X-Hub-Signature-256` against `WHATSAPP_APP_SECRET`; reject mismatches with 401.
-- Parse inbound payloads into an internal `IncomingMessage`: `{ sender_phone (E.164), wa_message_id, channel: 'dm' | 'group', group_id?, text, timestamp }`.
-- Non-text messages (image, audio, sticker, etc.): for V1, send a one-line "I can only read text in V1" reply and skip the agent loop.
-- Webhook handler returns 200 within 5s regardless of downstream work; processing dispatched to an in-process worker.
-- **Idempotency:** before any processing, skip messages whose `wa_message_id` was already seen (unique index from US-02) — Meta redelivers webhooks, and a redelivered "book it" must not book twice.
-- **Transport-agnostic pipeline:** the message pipeline consumes the normalized `IncomingMessage` behind an interface — the Meta webhook is just one producer. Add an admin-only `POST /admin/simulate-message` (bearer-protected) that injects an `IncomingMessage` through the *identical* pipeline. This is the chat simulator (review §2): agent iteration without phone/tunnel, and the substrate for the US-18 eval harness.
-- Every inbound logged before processing (so we can replay failures).
+- Choose **pg-boss or graphile-worker** (spike both briefly; record the decision and
+  rationale in `technical-requirements.md`).
+- Job types this story ships: `expire-hold` (scheduled at hold creation for TTL) and a
+  recurring sweeper as backstop.
+- Jobs are tenant-aware, idempotent (safe on retry/duplicate), and logged.
+- Worker runs in-process with the server for now; the boundary is clean enough to
+  split into a separate process at deploy time if needed.
 
 **Acceptance criteria.**
-- Meta dashboard shows the webhook subscription as verified.
-- Sending a text from a tester phone produces a parsed `IncomingMessage` in logs and a row in `conversation_turns` (after US-08; for this story, log only).
-- A request with a tampered signature is rejected with 401.
-- An image message triggers the "text only in V1" reply and no LLM call.
-- Redelivering the same webhook payload twice processes the message exactly once.
-- `POST /admin/simulate-message` produces the same downstream behavior as a real webhook delivery.
+- An unpaid hold auto-releases after its TTL: occupancy freed, payment `expired`.
+- A hold confirmed just before expiry is not released by the pending job.
+- Killing and restarting the worker loses no scheduled expiries (persistence test).
 
 ---
 
-## US-06 — WhatsApp outbound delivery
+## US-06 — Hosting, Meta app, secrets, and the payment-gateway spike
 
-**Description.** Send replies back into WhatsApp — to 1:1 chats and into groups — with sane error handling.
+**Description.** Public HTTPS deployment, WhatsApp Cloud API dev app, secret
+management — plus the one de-risking spike this plan has: verify the payments
+assumption before building on it.
 
-**Depends on.** US-04.
+**Depends on.** US-01 (deployable scaffold); US-02 for migrations on deploy.
 
 **Requirements.**
-- Thin client around `POST graph.facebook.com/v.../messages` using `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_TOKEN`.
-- Routes a reply back to either an individual `wa_id` or the originating group thread.
-- Supports both free-form text sends (valid only within the recipient's 24h service window) and **template sends** (pre-approved utility templates from US-04) for business-initiated notifications outside the window. The client picks template vs free-form based on whether the recipient has messaged within 24h.
-- Retry on 5xx (max 2 retries, exponential backoff); surface 4xx as structured errors.
-- Per-conversation rate limit (e.g., max 6 outbound messages / 60s) to contain agent-loop bugs.
-- Internal admin-only `POST /admin/ping` (bearer-token-protected) that sends a test message to a given phone — useful for smoke-testing without going through the agent loop.
+- Deploy to Railway or Fly.io (decide here): HTTPS, stable subdomain, health check,
+  migrations on deploy, logs streaming.
+- Neon Postgres provisioned; secrets only on the host: `DATABASE_URL`,
+  `ANTHROPIC_API_KEY`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`,
+  `WHATSAPP_APP_SECRET`, `WEBHOOK_VERIFY_TOKEN`, `ADMIN_BEARER_TOKEN`.
+- Meta developer account + WhatsApp Cloud API app; dev test number; tester phones
+  added (founder + friends — enough for the US-21 shakeout).
+- **Spike: Mercado Pago sandbox for Peru** — can a PE account create payment links
+  that accept Yape/Plin? What do the webhooks look like (idempotency keys, states)?
+  Does the S/500 Yape cap surface per-transaction? Record findings in
+  `technical-requirements.md`; if Mercado Pago can't do Yape for PE, evaluate
+  Culqi/Izipay behind the same adapter interface *now*, not in US-14.
+- **Draft the first utility templates in Spanish** (booking reminder with
+  Confirmar/Cancelar buttons, payment nudge, cancellation notice) and submit for
+  approval — approval takes time; US-16 needs them.
+- Deploy/rollback documented in `Docs/technical/operations.md`.
 
 **Acceptance criteria.**
-- Hitting `/admin/ping` with a valid token delivers a WhatsApp message to the named tester.
-- A round-trip "hello" → fixed "hi back" reply works end-to-end (still no agent loop yet; this story can hard-code the reply).
-- Forcing the WhatsApp API to return 500 retries up to 2 times then logs an error.
+- `curl https://<host>/health` returns 200 publicly; migrations applied.
+- Meta dashboard shows the app + test number + testers.
+- Spike findings written down with a go/adjust decision on the gateway.
+- Templates submitted (approval status tracked, not necessarily granted yet).
 
 ---
 
-## US-07 — Identity gate (invite-only)
+## US-07 — WhatsApp inbound webhook and chat simulator
 
-**Description.** Enforce invite-only access before any LLM call. Unknown phones get a templated rejection; known phones are tagged with member, pro, or both.
+**Description.** Accept, verify, dedupe, and normalize inbound messages — and expose
+the identical pipeline through an admin endpoint so agent development never requires a
+phone. The simulator is the project's biggest velocity decision.
 
-**Depends on.** US-03, US-05, US-06.
+**Depends on.** US-06.
 
 **Requirements.**
-- On every inbound, look up the sender phone in `members` and `pros`.
-- If neither exists: send the templated `UNKNOWN_USER_REPLY` ("Hi, you don't have access yet. Contact the club to be added.") and stop. No `conversation_turns` row. No Anthropic call.
-- If known: attach `Identity { member?, pro?, role: 'member' | 'pro' | 'both' }` to the message context for downstream handlers.
-- Log the rejection with a salted hash of the phone (not the phone itself) so we can spot spam without storing PII.
-- Group chats: each sender resolved independently per their own phone; the agent is invoked only when a known user speaks.
+- `GET /whatsapp/webhook`: Meta `hub.challenge` verification.
+- `POST /whatsapp/webhook`: validate `X-Hub-Signature-256` (raw-body HMAC) against
+  `WHATSAPP_APP_SECRET`; 401 on mismatch.
+- Parse payloads into a normalized `IncomingMessage`: `{ tenant_id, sender_phone
+  (E.164), wa_message_id, kind: 'text' | 'button_reply' | 'list_reply' | 'media',
+  text?, reply_id?, timestamp }`. Interactive replies (buttons/lists) are first-class
+  — reminders and degraded mode depend on them.
+- Return 200 within 5s regardless of downstream work; processing dispatched async.
+- **Idempotency:** skip messages whose `wa_message_id` was already seen (US-02 index).
+- **Transport-agnostic pipeline:** the pipeline consumes `IncomingMessage` behind an
+  interface; the Meta webhook is one producer. `POST /admin/simulate-message`
+  (bearer-protected) injects an `IncomingMessage` through the *identical* path — the
+  substrate for development, demos, and the US-20 eval harness.
+- Unsupported media (audio, stickers, images) get a polite es-PE "solo texto por
+  ahora" reply and skip the agent.
+- Every inbound is logged before processing (replayable failures).
 
 **Acceptance criteria.**
-- An unknown number sending "hi" receives the templated rejection; no rows in `conversation_turns`; no Anthropic API call.
-- A seeded member sending "hi" reaches the agent code path with a populated `Identity`.
-- The dual-role tester (member + pro) is tagged `role: 'both'`.
+- Meta webhook subscription verified; a text from a tester phone produces a parsed
+  `IncomingMessage` in logs.
+- Tampered signature → 401. Redelivered payload → processed exactly once.
+- `POST /admin/simulate-message` produces identical downstream behavior to a real
+  delivery, including button replies.
 
 ---
 
-## US-08 — Conversation history persistence
+## US-08 — WhatsApp outbound delivery
 
-**Description.** Persist every turn (user, assistant, tool) and replay history on each new turn so the agent loop can stay stateless.
+**Description.** Send replies out — free-form text within the 24h window, approved
+templates outside it, and interactive messages (buttons, lists, media) — with retries
+and rate limiting.
 
-**Depends on.** US-02, US-07.
+**Depends on.** US-06.
 
 **Requirements.**
-- `conversation_turns` columns: `id`, `conversation_id` (sender phone for DMs, group id for groups), `participant_phone`, `role` ∈ {`user`, `assistant`, `tool`}, `content` (JSONB — Anthropic-compatible blocks), `tool_use_id?`, `created_at`.
-- On each inbound: append the `user` turn; load the last 20 turns for the same `conversation_id`; build the Anthropic message array.
-- For V1, do **not** summarize older turns — accept the trim at 20.
-- Conversations are keyed per phone in DMs and per group thread in groups; do not bleed between contexts.
+- Thin client on `POST graph.facebook.com/v…/messages` supporting: text, utility
+  **template sends** (with variables), **interactive buttons/lists**, and media (QR
+  image for yapeo, location pin).
+- Window tracking: per-recipient last-inbound timestamp decides free-form vs
+  template; sending free-form outside the window is refused by the client with a
+  structured error (so bugs surface loudly, not as silent Meta 4xxs).
+- Retry on 5xx (max 2, backoff); structured 4xx errors; per-conversation outbound
+  rate limit (e.g. 6 msgs/60s) to contain loop bugs.
+- Per-message cost tracking hook: template sends record category + country for the
+  guardrail telemetry (US-12 aggregates it).
+- `POST /admin/ping` (bearer-protected) sends a test message to a named phone.
 
 **Acceptance criteria.**
-- After 5 back-and-forth user/assistant exchanges, ≥ 10 rows exist in `conversation_turns` with the right roles and order.
-- Two separate testers' conversations stay isolated.
-- Replay produces a message array that round-trips through Anthropic without schema errors.
+- `/admin/ping` delivers a WhatsApp message to a tester.
+- Round-trip "hola" → hard-coded reply works end-to-end (no agent yet).
+- An interactive button message renders on a real phone and the button reply comes
+  back through the US-07 pipeline.
+- Free-form send to an out-of-window recipient is blocked client-side.
 
 ---
 
-## US-09 — Claude agent loop with tool use and prompt caching
+## US-09 — Identity: first-contact registration, roles, and abuse guard
 
-**Description.** The core stateless agent loop: assemble a cached system prompt, call Claude Sonnet 4.6 with the tool registry, execute returned tool calls, loop until the model emits `end_turn`, send the final text to WhatsApp.
+**Description.** Resolve every sender to a member or staff identity; register unknown
+numbers conversationally (PRD §4.2); protect the LLM path from abuse now that it's
+open to strangers.
 
-**Depends on.** US-06, US-08.
+**Depends on.** US-03, US-07, US-08.
 
 **Requirements.**
-- `@anthropic-ai/sdk`, model `claude-sonnet-4-6` (from `ANTHROPIC_MODEL`).
-- System prompt built per turn from: club name, timezone, courts + operating hours, current upcoming programs (≤ 14 days), pro roster, policies, persona/style, group-chat rules.
-- Mark the system prompt and the tool definitions with `cache_control: { type: 'ephemeral' }` (5-minute TTL).
-- Tool registry pattern: each tool has `name`, `description`, Zod input schema (converted to JSON Schema for Anthropic), and an async `handler(input, ctx)`. `ctx` carries `Identity`, `conversation_id`, db handle, and the outbound WhatsApp client.
-- Agent loop: call API → if `stop_reason === 'tool_use'`, execute returned tool calls in parallel, append `tool_result` blocks, loop. Stop at `end_turn`, on max iterations (6), or on wall-clock timeout (30s).
-- Tool errors are returned to the model as `tool_result` with `is_error: true` so it can recover gracefully.
-- **Confirm-before-write prompt policy:** before calling any tool that writes (booking, registration, cancellation, lesson request), the agent echoes the absolute resolved datetime and target ("That's Tuesday July 8, 7:00pm, Court 2 — confirm?") and waits for a yes. Relative-time resolution ("Tuesday 7pm") is the #1 booking-agent failure mode (review §5).
-- Final assistant text sent via the outbound client; assistant + tool turns persisted to `conversation_turns`.
-- One toy tool wired in for this story: `whoami()` returning the caller's identity.
+- On every inbound: resolve `(tenant, phone)` against `members` and `staff`; attach
+  `Identity { member?, staff_roles?: ('owner'|'admin'|'coach')[] }`.
+- **Unknown number → registration flow:** agent (or, pre-US-11, a scripted exchange)
+  asks for name and optionally level in es-PE; creates the member profile keyed on
+  phone; continues the original request ("¿tienen cancha mañana?") without making the
+  user repeat it.
+- **Abuse guard:** per-number rate limit (e.g. max N inbound/hour for unregistered
+  numbers), per-tenant daily LLM spend cap with alerting, and a cheap pre-LLM triage
+  that drops obvious spam. Rejections logged with a salted phone hash, not raw PII.
+- Consent record at registration (Ley N° 29733): store what the member agreed to and
+  when; opt-in flags for proactive message categories default per PRD (transactional
+  yes, promos opt-in).
 
 **Acceptance criteria.**
-- A member sending "hello" gets a contextual greeting that mentions the club name.
-- `whoami` is callable end-to-end through WhatsApp; the model can summarize the result back to the user.
-- The Anthropic API response shows `input_tokens_cache_read > 0` on the second turn within 5 minutes.
-- A tool that always throws returns a friendly fallback reply within the loop's iteration / time limits.
+- A seeded member's message reaches the agent path with a populated `Identity`.
+- An unknown number gets the registration exchange and ends up as a member; their
+  original question is then answered.
+- The 100th message in an hour from one unregistered number is rate-limited without
+  an LLM call.
+- Staff numbers resolve with their roles attached.
 
 ---
 
-## US-10 — Per-turn observability
+## US-10 — Conversation history and human takeover
 
-**Description.** Capture enough telemetry per LLM call to debug failed conversations and to spot-check cost.
+**Description.** Persist every turn and replay history so the agent loop stays
+stateless; pause the agent when a human staff member steps into a thread (PRD §4.9).
 
-**Depends on.** US-09.
+**Depends on.** US-02, US-09.
 
 **Requirements.**
-- `agent_turns` columns: `id`, `conversation_id`, `created_at`, `latency_ms`, `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `tool_calls` (JSONB array of `{ name, input, latency_ms, error? }`), `error?`.
-- One `agent_turns` row per Anthropic API call (so multiple per user message during a tool-use loop).
-- `GET /admin/turns?conversation_id=…&limit=100` returns the most recent turns as JSON, protected by `ADMIN_BEARER_TOKEN`.
-- Structured console logs in dev; logs streamed to the host's log system in prod.
+- Append user turns; load last 20 turns per `(tenant, phone)` thread; build the
+  Anthropic message array. No summarization in MVP.
+- Threads never bleed across tenants or phones.
+- **Human takeover:** an outbound message sent by staff from the business number
+  (detected via Meta's echo webhooks, or toggled via `/admin` + later the dashboard)
+  pauses the agent on that thread; `"/agente on"` from staff or 60 min of staff
+  inactivity resumes it. Paused-thread inbounds are stored (nothing lost) and
+  surfaced to staff.
 
 **Acceptance criteria.**
-- After a single court-booking conversation, `/admin/turns` shows ≥ 2 rows with token counts, cache hit info, tool calls, and latencies.
-- A turn that errored shows `error` populated and the user received a friendly "Something went wrong" reply (no raw stack traces).
+- 5 exchanges → ≥ 10 correctly ordered rows; two testers' threads stay isolated.
+- Replay round-trips through the Anthropic API without schema errors.
+- While paused, the agent sends nothing on that thread; resume works via both paths.
 
 ---
 
-## US-11 — Court availability and booking tools
+## US-11 — Claude agent loop (es-PE, cached, confirm-before-write)
 
-**Description.** Two tools that together enable the headline member flow: "is X free?" and "book it."
+**Description.** The stateless tool-calling loop: cached per-tenant system prompt,
+Sonnet with the tool registry, execute tool calls, loop to `end_turn`, reply in
+Peruvian Spanish.
 
-**Depends on.** US-09.
+**Depends on.** US-08, US-10.
 
 **Requirements.**
-- Tool `search_court_availability({ date, earliest_start?, latest_start?, duration_minutes? })`: returns up to N candidate slots across courts that fit the constraints, respecting operating hours and existing `court_bookings`/`programs`.
-- Tool `create_court_booking({ court_id, start_at, duration_minutes, member_phones? })`: creates a `confirmed` court booking, links the requesting member (and any additional `member_phones`), rejects on conflict.
-- **Multi-member booking by name works in 1:1 chat** ("book for me, Alex, and Sam Tuesday 7pm"): the agent resolves named members and passes their phones in `member_phones`. This is the low-risk core of the group value (review §1) — US-17's group chat builds on it as an experiment, not the other way around.
-- Bookings are only created after the user confirms the echoed absolute datetime (confirm-before-write policy from US-09).
-- Default duration: **90 minutes** (per PRD assumption). Agent should ask for confirmation if the user requests a non-standard duration.
-- Time parsing in the club's timezone.
-- Successful reply includes date (formatted in club tz), start time, court name, duration, and participants.
+- `@anthropic-ai/sdk`; model from `ANTHROPIC_MODEL` (default `claude-sonnet-4-6`).
+- System prompt assembled per tenant: club name/courts/hours, pricing summary,
+  policies, es-PE persona (§5: warm, brief, lightly emoji'd, "tú"), grounding rules
+  (only state availability/prices/policies returned by tools; on tool failure, say so
+  and offer a human), escalation rules (complaints, refund disputes, incidents,
+  aggression, 2 consecutive failed interpretations → ping staff with context).
+- `cache_control: { type: 'ephemeral' }` on system prompt + tool definitions; static
+  content first, volatile content after the cache breakpoint.
+- Tool registry: `name`, `description` (es-friendly), Zod input schema → JSON Schema,
+  async `handler(input, ctx)`; `ctx` carries `Identity`, tenant, thread, db, outbound
+  client. **Role-gating enforced in the dispatcher** (member vs staff tools).
+- Loop: execute tool calls (parallel), append `tool_result` (errors as
+  `is_error: true`), stop on `end_turn`, max 6 iterations, 30s wall clock.
+- **Confirm-before-write:** before any tool that books, holds, cancels, or charges,
+  the agent echoes the absolute resolved datetime, court, and price ("Jue 09/07,
+  8:00–9:30pm, Cancha 2, S/120 — ¿confirmo?") and waits for a yes. Relative-time
+  resolution in `America/Lima` is the #1 failure mode; evals in US-20 cover it.
+- First tool: `whoami()`. Assistant + tool turns persisted.
 
 **Acceptance criteria.**
-- "Book a court Tuesday at 7pm" → agent echoes the absolute resolved date/time and court, and after the user confirms, creates a 90-minute booking starting Tuesday 19:00 club-local.
-- "Book for me and Alex Tuesday 7pm" in a 1:1 chat → one booking linked to both members (Alex resolved by name from the member roster).
-- A conflicting request returns a tool error; the agent suggests alternative slots in the same reply.
-- A request outside operating hours is refused with a clear message.
-- The resulting `court_bookings` row has the requesting member linked via `court_booking_members`.
+- A member's "hola" gets a contextual es-PE greeting naming the club.
+- `input_tokens_cache_read > 0` on the second turn within 5 minutes.
+- A tool that throws produces a friendly es-PE fallback within loop limits.
+- A member cannot invoke a staff-gated tool (dispatcher refuses, prompt-injection
+  test included).
 
 ---
 
-## US-12 — List my upcoming reservations
+## US-12 — Observability and cost guardrail telemetry
 
-**Description.** A single tool that returns the user's upcoming items across court bookings, lessons, and program registrations.
+**Description.** Per-LLM-call telemetry, per-booking cost attribution, and the
+admin surface to debug failed conversations.
 
 **Depends on.** US-11.
 
 **Requirements.**
-- Tool `list_my_upcoming_reservations()`: returns the next 30 days of non-cancelled items as a chronological array of `{ type: 'court' | 'lesson' | 'program', id, start_at, end_at, court?, pro?, program_name?, status, co_participants[] }`.
-- Pending lessons are included with `status: 'pending'`.
-- Co-participants on group court bookings are listed by name.
+- One `agent_turns` row per API call: latency, model, token counts (incl. cache),
+  tool calls JSONB, error. Computed cost per turn from current pricing.
+- **Per-booking attribution:** turns and template sends link to the booking they
+  produced (or the conversation, when no booking results), yielding LLM+template cost
+  per completed booking — the < S/0.50 guardrail (PRD §7). Alert (log/notify) when a
+  rolling average exceeds it.
+- `GET /admin/turns?thread=…` and `GET /admin/costs?tenant=…` (bearer-protected).
+- Booking-funnel events: inquiry → hold → paid → completed, queryable per tenant.
 
 **Acceptance criteria.**
-- After making one court booking, one lesson request, and one program registration, "what's on my calendar?" returns all three in chronological order.
-- Cancelled items do not appear.
-- Declined lesson requests do not appear.
+- After one simulated booking conversation, `/admin/turns` shows the turns with
+  tokens, cache hits, tool calls, latencies; `/admin/costs` shows a per-booking cost.
+- An errored turn shows `error` populated; the user saw a friendly es-PE message.
 
 ---
 
-## US-13 — Cancel a reservation
+## US-13 — Booking tools: the headline flow
 
-**Description.** One tool to cancel any reservation type, with the necessary side effects (free capacity, notify pros).
+**Description.** The MVP intents as tools against the US-04 engine: check
+availability, book (hold → confirm), cancel, reschedule, my bookings, prices/hours.
+Payment in this story is per-club "cash/pay-at-club" mode; US-14/15 complete it.
 
-**Depends on.** US-11, US-12.
+**Depends on.** US-04, US-05, US-11.
 
 **Requirements.**
-- Tool `cancel_reservation({ type, id })`: validates the caller is on the booking and that `start_at > now`; sets status to `cancelled`.
-- Program cancellations free capacity (the registration is `cancelled`; `spots_remaining` is computed from non-cancelled registrations).
-- Lesson cancellations send an outbound WhatsApp message to the pro: "[Member] cancelled the lesson on [date/time]."
-- For group court bookings, V1 cancels the whole booking when any participant cancels (simpler; documented as a limitation to revisit in V1.next).
-- Reject cancellations of past or non-owned reservations with a clear tool error.
+- Tools: `search_availability`, `create_hold` (returns hold + price + expiry),
+  `confirm_booking` (cash mode: books as "unpaid — at risk" per club policy),
+  `cancel_booking` (policy applied, wallet credited), `reschedule_booking`,
+  `list_my_bookings`, `get_club_info` (prices/hours/location).
+- Agent proposes at most 2–3 alternatives when the requested slot is full (§4.1).
+- Hold expiry notifies the member ("se venció tu reserva, ¿la retomamos?") via the
+  US-05 job + US-08 client.
+- All writes behind confirm-before-write; all times formatted in `America/Lima`;
+  prices in S/.
+- Staff can do the same by name ("resérvale a Marco jueves 6pm, paga en cancha").
 
 **Acceptance criteria.**
-- Cancelling a court booking removes it from `list_my_upcoming_reservations`.
-- Cancelling a confirmed lesson sends a WhatsApp notice to the pro.
-- Cancelling a program registration restores `spots_remaining` and lets another member register up to capacity again.
-- Cancelling a stranger's booking is refused.
+- Simulator: "¿tienen cancha mañana 7pm?" → real availability with prices; "resérvala"
+  → echo + confirm → hold created; cash-mode confirm books it.
+- A conflicting request gets alternatives in the same reply, not an error dump.
+- An unpaid hold expires on TTL and the member is notified.
+- Cancelling >12h out credits the wallet and frees the slot for rebooking.
+- Reschedule moves the booking atomically (no window where both or neither exist).
 
 ---
 
-## US-14 — Programs: listing and registration
+## US-14 — Payments I: gateway adapter (Mercado Pago)
 
-**Description.** Tools to discover and join upcoming programs.
+**Description.** Payment links that auto-confirm bookings: pluggable gateway
+interface, Mercado Pago implementation, idempotent webhooks.
 
-**Depends on.** US-09.
+**Depends on.** US-06 (spike findings), US-13.
 
 **Requirements.**
-- Tool `list_programs({ type?, date_range? })`: returns upcoming programs with type, start/end, pro (if any), capacity, `spots_remaining`, price (if any).
-- Tool `register_for_program({ program_id })`: registers the caller if `spots_remaining > 0`; structured errors on full or already-registered.
-- The capacity check is transactional (use `SELECT … FOR UPDATE` or rely on the partial unique index + count + insert) so two simultaneous requests for the last spot can't both succeed.
+- `PaymentGateway` interface (create link for a hold, parse/verify webhook, refund);
+  Mercado Pago adapter first; credentials per tenant.
+- Booking flow: hold → agent sends payment link → gateway webhook (signature-verified,
+  idempotent) → payment `held → paid` → booking confirmed → es-PE confirmation
+  message with the cancellation-policy line.
+- Failure/expiry paths: failed payment keeps the hold ticking with a nudge; hold
+  expiry marks the payment `expired` and voids the link where the gateway allows.
+- Yape S/500 per-operation cap: amounts above it get split-payment instructions or
+  card fallback per the US-06 spike findings.
+- Fees pass-through or absorbed per tenant setting (recorded on the payment row).
 
 **Acceptance criteria.**
-- "Any clinics this weekend?" returns the seeded clinics in the next 7 days with `spots_remaining`.
-- Registering for an open-play decrements `spots_remaining` by one.
-- Registering for a full program returns a clear tool error surfaced to the user.
-- A second register call from the same member is rejected.
+- Sandbox end-to-end: hold → link → sandbox payment → webhook → confirmed booking →
+  WhatsApp confirmation, with the payment row walking `unpaid → held → paid`.
+- Replayed webhook does not double-confirm (idempotency test).
+- A >S/500 booking triggers the cap handling.
 
 ---
 
-## US-15 — Lessons: member request and pro accept/decline
+## US-15 — Payments II: manual yapeo, cash, and cierre de caja
 
-**Description.** A member requests a lesson with a specific pro; the pro receives a WhatsApp message and replies in natural language; status updates propagate back to the member.
+**Description.** The zero-fee path most clubs start on: club's Yape QR + one-tap
+staff confirmation; plus the daily reconciliation report.
 
-**Depends on.** US-09, US-12.
+**Depends on.** US-13, US-08.
 
 **Requirements.**
-- Tool `list_pros()`: returns pros (name only in V1 — bios deferred).
-- Tool `request_lesson({ pro_phone, start_at, duration_minutes? })`: creates a `lessons` row with `status: 'pending'`, links the requesting member, and triggers an outbound WhatsApp to the pro: "Hi [Pro], [Member] is requesting a lesson on [date/time]. Reply yes or no."
-- Notifications to the pro (and back to the member) are business-initiated: if the recipient hasn't messaged within 24h, send via the approved utility template (US-04/US-06) instead of free-form text.
-- The pro's conversation context exposes two additional tools (gated to `role: 'pro' | 'both'`): `accept_lesson_request({ lesson_id })` and `decline_lesson_request({ lesson_id })`. The agent figures out which to call from the pro's natural-language reply ("yes please" → accept, "can't, sorry" → decline, ambiguous → ask).
-- On accept: status → `confirmed`; outbound message to the member confirming.
-- On decline: status → `declined`; outbound message to the member.
-- Pending lessons appear in the member's upcoming list with status; the member may cancel a pending lesson (cancels notify the pro too, per US-13).
+- Manual-yapeo flow (§4.3): agent sends the club's Yape/Plin QR image + number;
+  member replies "ya pagué"; **staff get an interactive one-tap Confirmar/Rechazar
+  message**; hold timer keeps running until confirmed; screenshots are never treated
+  as proof (prompt rule + no image parsing).
+- Staff confirm → `paid` + booking confirmed; reject → member notified, hold
+  continues to TTL.
+- Cash-on-arrival per club policy: booking "unpaid — at risk", counted in no-show
+  stats.
+- **Cierre de caja** (§4.9): end-of-day job builds a summary reconciling every
+  booking to a payment method (gateway / yapeo / cash / unpaid) with discrepancies
+  flagged; delivered to the owner on WhatsApp (template) and via `/admin`.
+- SUNAT-friendly CSV export of payment records (FR-4).
 
 **Acceptance criteria.**
-- Member: "lesson with [pro] Tuesday at 7" → member sees "request sent"; pro receives a WhatsApp message naming the member and slot.
-- Pro: "yes" → lesson is `confirmed`; member receives a confirmation.
-- Pro: "no" → lesson is `declined`; member receives a polite decline.
-- Member cancels a pending lesson → pro receives the cancellation notice.
+- Simulator + real phone: yapeo flow end-to-end including the staff one-tap confirm.
+- Unconfirmed yapeo hold expires normally at TTL.
+- Cierre de caja for a seeded day lists every booking with its payment method and
+  flags a deliberately-mismatched one.
+- CSV export downloads with the day's payments.
 
 ---
 
-## US-16 — Pro tools: schedule and create lesson
+## US-16 — Reminders and no-shows
 
-**Description.** Affordances for pros to see their schedule and to create lessons directly for named members.
+**Description.** Template reminders at 24h and 2h with Confirm/Cancel buttons, and
+the no-show ledger with configurable sanctions (§4.7).
 
-**Depends on.** US-15.
+**Depends on.** US-05, US-08, US-13; templates approved (US-06).
 
 **Requirements.**
-- Tool `pro_schedule({ date_range? })` (pro/both only): returns the pro's confirmed lessons in the range with member names; default range = next 7 days.
-- Tool `create_lesson({ member_phones[], start_at, duration_minutes? })` (pro/both only): creates a `confirmed` lesson with the requesting pro and the listed members; sends each member an outbound WhatsApp: "Your pro [Name] booked you for a lesson on [date/time]."
-- All listed `member_phones` must resolve to known members; otherwise the tool fails with a clear error.
-- Tool authorization enforced in the tool dispatcher (a member calling these is refused at the registry level).
+- Jobs schedule 24h and 2h reminders per confirmed booking using approved utility
+  templates with Confirmar / Cancelar buttons; button replies flow through the
+  normal pipeline (cancel applies the policy engine).
+- Reminder sends respect opt-outs and are recorded with cost (guardrail telemetry).
+- No-show recording: staff mark no-shows (via WhatsApp ops or `/admin`); record on
+  the member profile; configurable sanctions per tenant — wallet fee, prepay-only
+  flag, temporary block after N strikes — enforced on the next booking attempt.
+- Booking-confirmed and cancellation notices (already sent in US-13/14/15) switch to
+  templates automatically when outside the 24h window.
 
 **Acceptance criteria.**
-- Pro: "what's my schedule this week?" → returns confirmed lessons with member names.
-- Pro: "book a lesson with Alex and Sam Wednesday 6pm" → both members get a WhatsApp message; lesson exists with both linked; both members see it in their own `list_my_upcoming_reservations`.
-- A member attempting to call `create_lesson` via prompt injection sees a refusal — the tool is not exposed in the member's context and the dispatcher double-checks the role.
+- A confirmed booking gets both reminders (time-travel test via job runner clock).
+- Tapping Cancelar in the 24h reminder cancels with policy applied.
+- A member with N strikes is required to prepay on their next booking.
+- Opted-out members receive no optional messages.
 
 ---
 
-## US-17 — Group chat: participant resolution and group court booking
+## US-17 — Owner surface I: WhatsApp ops and weekly digest
 
-**Description.** The V1 differentiator. The club creates a WhatsApp group via the Groups API and invites the testers; inside it, the agent resolves each participant against the member DB and supports "book for all of us" requests.
+**Description.** Natural-language operations for owner/admin on WhatsApp, and the
+weekly digest — the retention surface (FR-8 ships this even before the web dashboard
+grows up).
 
-**Platform reality (see technical-requirements.md):** the Cloud API cannot be added to member-created groups — the business must create the group (invite via link, max 8 participants, one business number per group). Whether the dev test number supports the Groups API is validated by the US-04 spike; if it doesn't, this story needs a verified business number or slips to V1.next.
-
-**Depends on.** US-08, US-11, US-13, and the US-04 Groups API spike.
+**Depends on.** US-11, US-13; US-15 for revenue numbers.
 
 **Requirements.**
-- Create the dogfood group programmatically via the Groups API and send testers the invite link (an admin-only `POST /admin/groups` route is fine).
-- Detect that an inbound message came from a group via the Meta payload (confirm exact field shape during implementation; expose it on `IncomingMessage.channel === 'group'` and `group_id`).
-- On each group invocation, resolve the participants Meta surfaces against `members`; build a per-group `GroupContext` with `known_members[]` and `unknown_phones[]`.
-- The system prompt for a group conversation includes the known participants by name and the unresolved phones.
-- `create_court_booking` accepts `member_phones[]` (up to 4); all listed must be known members; the booking is linked to each member.
-- Replies in groups name the included members ("Booked Tuesday 7pm for Alex, Sam, Jess, and Mia").
-- If unknown phones are present in the group and the requester says "us four", the agent books for the known members and flags the unknown ones in the reply: "Couldn't include +1-555… — invite-only. Ask the club to add them."
+- Staff-gated tools: `today_grid` ("¿cómo va hoy?" → occupancy grid + revenue),
+  `block_court` ("bloquea cancha 1 mañana 9–11 por mantenimiento" → maintenance
+  occupancy), `book_for_member` (by name), `member_lookup`, `mark_no_show`.
+- **Weekly digest** job: occupancy %, revenue, no-shows charged, recovered
+  cancellations (slots that re-booked after a cancel), new members, valley-hour
+  trend; sent to the owner via approved template; content also available at
+  `/admin/digest`.
+- Escalations (from US-11 rules) ping staff with conversation context and a takeover
+  hint.
 
 **Acceptance criteria.**
-- In a business-created group with 4 known testers, asking "court Tuesday 7pm for us four" creates one booking linked to all four; the reply confirms by name.
-- In a group with one unknown number, the booking still completes for the 3 known members and the reply names the unknown number and instructs the requester.
-- The same booking appears in every linked member's `list_my_upcoming_reservations` when they ask in a 1:1 chat.
-- Group conversation history is stored under the group's id and does not appear in any member's DM history.
+- Owner: "¿cómo va hoy?" returns the real grid and revenue for the seeded day.
+- "bloquea cancha 1 mañana 9–11" creates a maintenance block that availability
+  respects (and the GIST constraint enforces).
+- The digest job produces correct numbers for a seeded week and delivers on WhatsApp.
+- A member cannot trigger any of these tools.
 
 ---
 
-## US-18 — Open-ended Q&A polish and minimal eval
+## US-18 — Owner surface II: onboarding wizard and minimal dashboard
 
-**Description.** Tighten agent behavior on broad questions so it reliably uses the right tools instead of hallucinating.
+**Description.** Same-day setup as a product requirement (FR-11): a wizard covering
+courts, hours, prices, policies, payment mode, and WhatsApp number path — plus a
+minimal mobile-first web dashboard.
 
-**Depends on.** US-11, US-14, US-15.
+**Depends on.** US-02; US-14/15 for payment-mode config.
 
 **Requirements.**
-- System prompt explicitly enumerates the tool catalog and when to use which.
-- Few-shot examples in the system prompt for 3+ broad patterns: availability sweep, "any [type] this weekend?", "who are the pros?".
-- When the agent lists options to the user, it ends with a soft follow-up ("Want me to book one?").
-- Minimal eval harness: 10–15 hand-picked prompts in `evals/prompts.json` with the expected first tool call. `pnpm eval` runs each against the live agent loop in a sandbox conversation (via the US-05 simulate pipeline) and reports pass/fail.
-- Include time-resolution eval cases (review §5): "tomorrow at 7", "Tuesday 7pm" said on a Tuesday, "7 o'clock" (AM/PM ambiguity) — each expected to resolve to the correct absolute datetime or trigger a clarifying question.
+- Decide the web stack here (server-rendered Express views/HTMX vs small SPA) —
+  record in `technical-requirements.md`; mobile-first either way.
+- Auth for staff (magic link or phone-code; no passwords to manage).
+- Wizard: club basics → courts + hours → pricing rules → policies (cancellation
+  window, hold TTL, no-show sanctions) → payment mode (gateway credentials or yapeo
+  QR upload) → WhatsApp number path (dedicated vs migration, **with the "number
+  can't stay in the consumer app" warning made explicit**, FR-3).
+- Schedule import from CSV (existing bookings), so a club's current week survives
+  the switch.
+- Dashboard v0: today grid, week occupancy by hour/court, bookings list, member
+  list with profile (history, wallet, no-shows), cierre de caja view.
+- Roles enforced (owner/admin/coach scopes).
 
 **Acceptance criteria.**
-- ≥ 80% of eval prompts produce the expected first tool call.
-- "Who are the pros?" returns the seeded pros and does not invent names.
-- "What's available Tuesday evening?" returns slots anchored to the club's timezone.
+- A fresh tenant can be fully configured through the wizard in one sitting and
+  immediately serve a simulated booking conversation.
+- CSV import places existing bookings on the grid (and they occupy courts).
+- Coach role sees schedules but cannot edit prices or payments.
 
 ---
 
-## US-19 — Dogfood acceptance run
+## US-19 — Degraded mode: button-menu booking without the LLM
 
-**Description.** Validate V1 end-to-end with the founder + ≥ 3 friends over a one-week window. This is the V1 success gate.
+**Description.** If the LLM provider is down, core booking still works via WhatsApp
+interactive lists/buttons driven directly by the engine (FR-2, availability NFR).
+
+**Depends on.** US-07, US-08, US-13.
+
+**Requirements.**
+- Health-based switch (Anthropic API errors/timeouts past a threshold) plus a manual
+  toggle; per-tenant.
+- Scripted flow with interactive messages: pick day (list) → pick slot (list, with
+  prices) → confirm (button) → hold + payment per club mode. Cancel via "mis
+  reservas" list.
+- Copy makes the mode invisible ("elige una opción") — no apology banners.
+- Non-booking questions get a short es-PE "un humano te responde pronto" + staff ping.
+
+**Acceptance criteria.**
+- With the LLM stubbed to fail, a full booking completes via buttons in the
+  simulator and on a real phone.
+- Recovery flips back to the agent automatically.
+
+---
+
+## US-20 — Spanish eval harness and behavior polish
+
+**Description.** Evals that keep the agent honest in es-PE, run against the live loop
+through the simulator pipeline.
+
+**Depends on.** US-13; ideally after US-14/15 so payment phrasing is real.
+
+**Requirements.**
+- `evals/prompts.json`: 20–30 es-PE prompts with expected first tool call and/or
+  expected-behavior assertions; `pnpm eval` runs them through the simulator and
+  reports pass/fail.
+- Must-cover cases: relative time resolution in `America/Lima` ("mañana 7pm",
+  "el martes" said on a Tuesday, "7" AM/PM ambiguity — expect clarifying question),
+  grounding (never invent availability/prices — seeded-empty club answers honestly),
+  peruanismos ("¿hay cancha pa' hoy?", "ya te yapeé"), escalation triggers, opt-out
+  honoring, and one prompt-injection attempt at a staff tool.
+- System-prompt polish driven by failures; few-shot examples for the top broad
+  patterns.
+
+**Acceptance criteria.**
+- ≥ 85% of eval prompts pass; time-resolution cases 100% (correct absolute datetime
+  or a clarifying question).
+- "¿quiénes son los profesores?" (or any unseeded fact) does not invent an answer.
+
+---
+
+## US-21 — Internal shakeout (founder + friends)
+
+**Description.** End-to-end validation on the Meta dev test number before any real
+club: every P0 flow exercised by real humans on real phones for a week.
 
 **Depends on.** All prior stories.
 
 **Requirements.**
-- Pre-flight checklist: members and pros seeded; Meta dev test number live with 5 testers added; logs streaming; `/admin/turns` reachable; rollback documented.
-- Scripted scenario covering every PRD flow: book a court (1:1), book a lesson (request + pro accept), register for each program type, list reservations, cancel each type, group booking for 4.
-- `Docs/product/dogfood-notes.md` started — tracking bugs, surprises, qualitative impressions.
-- **Kill/go signals written down *before* the run starts** (review §7 — friends are nice; pre-committed signals keep the verdict honest). E.g.: testers initiate bookings unprompted after week 1; zero wrong-time bookings across the run; multi-member/group booking used more than once without prompting.
-- Explicit dogfood question with a written answer: **does a business-created WhatsApp group feel natural or dead** compared to booking for friends by name in a 1:1 chat? (review §1)
+- Pre-flight: demo club seeded with testers; templates approved; logs + `/admin`
+  reachable; rollback documented.
+- Scripted scenario per tester: register as a new member (from an unknown number),
+  book with gateway payment (sandbox), book with manual yapeo (a tester plays staff
+  with the one-tap confirm), get reminders, cancel late and early, no-show once,
+  trigger degraded mode once, owner runs "¿cómo va hoy?" and receives the digest.
+- **Pre-committed pass signals written before the run** (spiritual heir of review
+  §7): zero double-bookings or wrong-time bookings; ≥ 70% of scripted flows complete
+  without human intervention; per-booking cost under the guardrail; median
+  inquiry→confirmed time < 3 min.
+- Bugs and impressions tracked in `Docs/product/shakeout-notes.md`.
 
 **Acceptance criteria.**
-- Founder + ≥ 3 friends each complete all five PRD member flows over WhatsApp.
-- One group-chat booking completed in a live WhatsApp group of 3–4 friends.
-- Cancellations correctly notify pros and free program capacity.
-- A short written summary lands in `dogfood-notes.md` with a yes/no recommendation on approaching a real pilot club — i.e., the PRD's success criterion.
+- Every scripted flow completed by ≥ 3 testers; pass signals evaluated in writing.
+- A go/fix-first decision recorded for proceeding to the design partner.
 
 ---
 
-## What's explicitly NOT in this plan
+## US-22 — Business verification and design-partner onboarding
 
-These are deferred to V1.next or later (matching PRD's Non-Goals):
+**Description.** The Phase 0 gate: a real Lima club live on the product under the
+90-day design-partner deal (PRD §8), with its baseline measured.
 
-- Admin web UI (V1.next — the trigger for approaching a real pilot club).
-- Pro and member web UIs, mobile apps.
-- Payments / monetization.
-- Proactive AI ops (retention nudges, smart scheduling, auto pro assignment, utilization insight).
-- Multi-club / multi-tenant.
-- Multi-language.
-- Tournaments / leagues / ladders.
-- Public marketing or booking website.
-- Conversation history summarization beyond a 20-turn rolling window (revisit when context cost matters).
-- Per-participant cancellation of group bookings (V1 cancels the whole booking).
-- Business verification of the WhatsApp number (required before a real pilot, not for the 5-tester dogfood).
+**Depends on.** US-21 pass.
+
+**Requirements.**
+- Meta Business verification; production WhatsApp number per the club's chosen path
+  (dedicated or migration); templates re-submitted under the production WABA.
+- Production gateway credentials (or yapeo mode) configured via the wizard.
+- **Baseline week instrumentation** (PRD §9): measure the club's current no-show
+  rate, response time, and valley occupancy during onboarding week — success metrics
+  are relative to this.
+- Founder-led same-day setup at the club; concierge fallback plan (staff can always
+  take over any thread).
+- Ley 29733 checklist: consent copy in registration, data-deletion path, PII
+  redaction in logs verified.
+- Success-metric dashboards live: activation (first paid agent-booking < 24h),
+  automation rate, no-show rate vs baseline, inquiry→booking time.
+
+**Acceptance criteria.**
+- The design-partner club takes its first real, paid, agent-completed booking within
+  24h of setup (PRD activation metric).
+- Baseline numbers recorded; weekly digest flowing to the real owner.
+- A written 30-day check-in against PRD §9 metrics.
+
+---
+
+## What's explicitly NOT in this plan (PRD P1/P2)
+
+- Waitlist + auto-offer cascade; "falta uno" open-match fill; turno fijo (FR-5, §4.5/4.6).
+- Reactivation & valley promos; segments (FR-6/FR-7 P1 parts).
+- Academy: groups, rosters, attendance, monthly billing/dunning (FR-9).
+- Tournaments & leagues (FR-10). Instagram DM channel (P2). Photo-of-notebook import.
+- Full analytics dashboard beyond v0 (FR-8 P1).
+- Multi-country, English club UI, marketplace features, hardware integrations — out of
+  scope entirely (PRD §11).
+- Conversation summarization beyond the 20-turn window; the Haiku router (build when
+  pilot telemetry justifies it — see agent-stack.md).

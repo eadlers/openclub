@@ -1,6 +1,6 @@
 # openclub
 
-AI-native club management for racket sports, starting with Padel. Members and pros interact with the club through a Claude-powered agent over WhatsApp.
+The AI receptionist that runs a padel club's WhatsApp — bookings, payments, and full courts, 24/7. The club keeps its own number; a Claude-powered agent (backed by a deterministic booking engine) answers in Peruvian Spanish. Launch market: Lima, Peru.
 
 Docs live in [`Docs/`](./Docs) — start with the [PRD](./Docs/product/PRD.md) and the [implementation plan](./Docs/product/implementation-plan.md).
 

@@ -2,7 +2,7 @@
   "name": "openclub",
   "version": "0.1.0",
   "private": true,
-  "description": "AI-native club management for Padel — WhatsApp agent backend",
+  "description": "AI receptionist for padel clubs — WhatsApp agent + deterministic booking engine (working title: club-manager)",
   "type": "module",
   "engines": {
     "node": ">=22"

@@ -1,3 +1,5 @@
+> **Superseded** by [PRD v2](./PRD.md) (2026-07, Lima padel pivot). Kept as historical notes.
+
 ## High Level description of the project for context and help creating the PRD
 
 OpenClub is an AI native club management Software for racket sports, where members can book and manage reservations/lessons via text message through a conversational ai agent that communicates with our backend

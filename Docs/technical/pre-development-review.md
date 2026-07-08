@@ -1,5 +1,13 @@
 # Pre-Development Review — 7 Things to Get Right (2026-07-02)
 
+> **Status (2026-07-08):** written against **PRD v1** (dogfood prototype), which PRD v2
+> (Lima padel pivot) has since replaced. Kept as historical record. What survives into
+> the v2 plan: **§2** (chat simulator), **§3** (unified occupancy table with the GIST
+> constraint — now also covering holds and maintenance blocks), **§4** (webhook
+> idempotency), **§5** (confirm-before-write time resolution), **§6** (CI, already
+> done). **§1** (group chat) is moot — v2 dropped group flows entirely. **§7** is
+> superseded by PRD v2 §9's quantitative success metrics.
+
 An advisory review of the V1 scope taken after US-01 (scaffold) and before US-02 (data
 model). Ordered by how much each item hurts if ignored. Each has a concrete landing spot
 in the [implementation plan](../product/implementation-plan.md).
